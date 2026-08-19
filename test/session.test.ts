@@ -1,0 +1,175 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { DEFAULT_LIMITS } from "../src/limits.ts";
+import { parseEdgeListText, projectValue } from "../src/ops.ts";
+import { SessionError, SessionTable } from "../src/session.ts";
+
+// ---- op catalog --------------------------------------------------------
+
+test("parseEdgeListText: parses `from to weight` lines, defaults weight to 1, single token = isolated vertex", () => {
+  const g = parseEdgeListText("A B 4\nC D\nE", true);
+  assert.deepEqual(g.vertices().sort(), ["A", "B", "C", "D", "E"]);
+  const edges = g.edges();
+  assert.equal(edges.length, 2);
+  assert.ok(edges.some((e) => e.from === "A" && e.to === "B" && e.weight === 4));
+  assert.ok(edges.some((e) => e.from === "C" && e.to === "D" && e.weight === 1));
+});
+
+test("parseEdgeListText: rejects empty input, bad token counts, and non-numeric weights", () => {
+  assert.throws(() => parseEdgeListText("", true), /empty/);
+  assert.throws(() => parseEdgeListText("A B 1 extra", true), /bad edge line/);
+  assert.throws(() => parseEdgeListText("A B x", true), /bad weight/);
+});
+
+test("projectValue: a Graph projects to typed JSON, a Map to entries, plain JSON passes through", () => {
+  const g = parseEdgeListText("A B 2", false);
+  const projected = projectValue(g) as { $type: string; directed: boolean; vertices: string[]; edges: unknown[] };
+  assert.equal(projected.$type, "graph");
+  assert.equal(projected.directed, false);
+  assert.deepEqual(projected.vertices.sort(), ["A", "B"]);
+  assert.deepEqual(projectValue(new Map([["k", 1]])), { $type: "map", entries: [["k", 1]] });
+  assert.deepEqual(projectValue({ plain: true }), { plain: true });
+});
+
+// ---- session lifecycle -------------------------------------------------
+
+test("open/list/close: a generic session opens empty, lists, and closes", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("generic");
+  assert.equal(table.list().length, 1);
+  assert.equal(table.list()[0]!.kind, "generic");
+  assert.deepEqual(await table.listCells(sessionId), []);
+  assert.deepEqual(table.close(sessionId), { closed: true });
+  assert.equal(table.list().length, 0);
+});
+
+test("operations against an unknown/closed session throw a SessionError, not a crash", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("generic");
+  table.close(sessionId);
+  assert.throws(() => table.close(sessionId), SessionError);
+  await assert.rejects(table.getCell(sessionId, "x"), SessionError);
+});
+
+test("open: unknown kind throws a SessionError naming the valid kinds", () => {
+  const table = new SessionTable();
+  assert.throws(() => table.open("nope" as never), /generic.*graph-theory|graph-theory.*generic/);
+});
+
+// ---- set/get/define: the generic core ------------------------------------
+
+test("set_cell + get_cell round-trip plain JSON", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("generic");
+  await table.setCell(sessionId, "x", 42);
+  assert.deepEqual(await table.getCell(sessionId, "x"), { value: 42 });
+});
+
+test("get_cell on a never-set cell throws a SessionError pointing at session_list_cells", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("generic");
+  await assert.rejects(table.getCell(sessionId, "ghost"), /session_list_cells/);
+});
+
+test("define + $cell refs: math_eval recomputes reactively when an upstream cell changes", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("generic");
+  await table.setCell(sessionId, "a", 3);
+  await table.define(sessionId, { cell: "doubled", op: "math_eval", args: { expr: "2 * a", vars: { a: { $cell: "a" } } } });
+  assert.deepEqual(await table.getCell(sessionId, "doubled"), { value: 6 });
+  await table.setCell(sessionId, "a", 10);
+  assert.deepEqual(await table.getCell(sessionId, "doubled"), { value: 20 });
+});
+
+test("define: unknown op throws a SessionError listing the catalog", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("generic");
+  await assert.rejects(table.define(sessionId, { cell: "x", op: "nope", args: {} }), /math_eval/);
+});
+
+test("set over a computed cell demotes it to a free cell (list_cells role flips)", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("generic");
+  await table.setCell(sessionId, "a", 1);
+  await table.define(sessionId, { cell: "b", op: "math_eval", args: { expr: "a + 1", vars: { a: { $cell: "a" } } } });
+  assert.deepEqual((await table.listCells(sessionId)).find((c) => c.cell === "b"), { cell: "b", role: "computed", op: "math_eval" });
+  await table.setCell(sessionId, "b", 99);
+  assert.deepEqual((await table.listCells(sessionId)).find((c) => c.cell === "b"), { cell: "b", role: "free" });
+  assert.deepEqual(await table.getCell(sessionId, "b"), { value: 99 });
+});
+
+// ---- the graph-theory preset: the spike's own fixture ---------------------
+
+test("graph-theory preset: the headless spike's edge-list -> BFS pipeline works end-to-end with the same fixture and result", async () => {
+  const table = new SessionTable();
+  // Same seed the preset defaults to == the spike's fixture (mallory-graph's
+  // cell-graph-headless-spike.test.ts: "A B 4\nA C 2\nC B 1\nB D 5",
+  // undirected, start A -> BFS order [A, B, C, D]).
+  const { sessionId } = table.open("graph-theory");
+  assert.deepEqual(await table.getCell(sessionId, "bfsOrder"), { value: ["A", "B", "C", "D"] });
+  const analysis = (await table.getCell(sessionId, "analysis")).value as { hasCycle: boolean; connectedComponents: string[][] };
+  assert.equal(analysis.hasCycle, true);
+  assert.equal(analysis.connectedComponents.length, 1);
+});
+
+test("graph-theory preset: setting edgeListText recomputes the whole chain (live session parity, not a frozen snapshot)", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("graph-theory");
+  await table.setCell(sessionId, "edgeListText", "X Y\nY Z");
+  await table.setCell(sessionId, "startVertex", "X");
+  assert.deepEqual(await table.getCell(sessionId, "bfsOrder"), { value: ["X", "Y", "Z"] });
+});
+
+test("graph-theory preset: open-call seed overrides the preset's defaults", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("graph-theory", { edgeListText: "P Q", startVertex: "P" });
+  assert.deepEqual(await table.getCell(sessionId, "bfsOrder"), { value: ["P", "Q"] });
+});
+
+test("graph-theory preset: get_cell on the graph cell returns the typed projection, not an opaque object", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("graph-theory");
+  const { value } = await table.getCell(sessionId, "parsed");
+  assert.equal((value as { $type: string }).$type, "graph");
+});
+
+// ---- guards --------------------------------------------------------------
+
+test("guard: session limit", () => {
+  const table = new SessionTable({ ...DEFAULT_LIMITS, maxSessions: 2 });
+  table.open("generic");
+  table.open("generic");
+  assert.throws(() => table.open("generic"), /session limit/);
+});
+
+test("guard: cell limit counts existing cells but allows overwriting one", async () => {
+  const table = new SessionTable({ ...DEFAULT_LIMITS, maxCells: 2 });
+  const { sessionId } = table.open("generic");
+  await table.setCell(sessionId, "a", 1);
+  await table.setCell(sessionId, "b", 2);
+  await assert.rejects(table.setCell(sessionId, "c", 3), /cell limit/);
+  await table.setCell(sessionId, "a", 99); // overwrite is fine at the cap
+});
+
+test("guard: payload limit rejects an oversized set", async () => {
+  const table = new SessionTable({ ...DEFAULT_LIMITS, maxPayloadBytes: 64 });
+  const { sessionId } = table.open("generic");
+  await assert.rejects(table.setCell(sessionId, "big", "x".repeat(1000)), /payload limit/);
+});
+
+test("guard: a failed call doesn't poison the session's queue for the next call", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("generic");
+  await assert.rejects(table.getCell(sessionId, "missing"));
+  await table.setCell(sessionId, "x", 1);
+  assert.deepEqual(await table.getCell(sessionId, "x"), { value: 1 });
+});
+
+test("serialization: interleaved calls against one session apply in submission order", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("generic");
+  // Fire a burst without awaiting; per-session queueing must apply them in order.
+  const writes = [1, 2, 3, 4, 5].map((n) => table.setCell(sessionId, "x", n));
+  await Promise.all(writes);
+  assert.deepEqual(await table.getCell(sessionId, "x"), { value: 5 });
+});

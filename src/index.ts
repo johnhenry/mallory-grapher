@@ -1,6 +1,12 @@
 /**
- * Public surface (docs/design.md). The session runtime, op catalog, and
- * `buildServer()` land under issue #2/#3; until then this exports the
- * vendored reactive core so the package is honest about what exists.
+ * Public surface (docs/design.md): the transport-agnostic `buildServer`
+ * (§7), the session runtime it serves (§1-§3), the op catalog + define-
+ * spec model (§5), the resource guards (§9), and the vendored reactive
+ * core underneath it all (§6 -- destined for mallory-math).
  */
 export { CellGraph, CircularDependencyError, structuralEqual } from "./cell-graph.ts";
+export { DEFAULT_LIMITS, limitsFromEnv, type SessionLimits } from "./limits.ts";
+export { OP_CATALOG, parseEdgeListText, projectValue, isCellRef, type CellRef, type DefineSpec } from "./ops.ts";
+export { PRESETS, type Preset, type SessionKind } from "./presets.ts";
+export { SessionError, SessionTable, type SessionInfo } from "./session.ts";
+export { buildServer } from "./server.ts";
