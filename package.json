@@ -1,0 +1,41 @@
+{
+  "name": "mallory-grapher",
+  "version": "0.0.0",
+  "description": "Headless, DOM-less CellGraph session runtime — agent-drivable via MCP; sessions of reactive cells computed through a server-side op catalog, no arbitrary code execution",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "mallory-grapher": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "test": "npm run typecheck && node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "mallory-math": "^0.11.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johnhenry/mallory-grapher.git"
+  },
+  "license": "MIT",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}
