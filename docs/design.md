@@ -191,3 +191,15 @@ Steps 2–3 are [#2](https://github.com/johnhenry/mallory-grapher/issues/2)'s
 scope; step 4 is [#3](https://github.com/johnhenry/mallory-grapher/issues/3);
 [#4](https://github.com/johnhenry/mallory-grapher/issues/4) stays parked
 until all of this is real.
+
+> **Post-v1 amendment (2026-08-20):** #4 (mounting grapher inside
+> mallory-graph's `/api/mcp`) was **closed as not planned** — the mount
+> would tie stateful sessions to mallory-graph's frequent-redeploy,
+> maybe-scaled container lifecycle, invert §4's opt-in security posture on
+> a publicly-reachable endpoint, and put the session server's memory blast
+> radius inside the live SSR site. Full reasoning in
+> [#4's closing comment](https://github.com/johnhenry/mallory-grapher/issues/4#issuecomment-5345150726).
+> Local stdio is the supported path; if remote agents ever need grapher,
+> the right shape is a separate gated Dokku app (bearer-token auth,
+> tightened limits, memory cap), filed as its own issue when a concrete
+> consumer exists.
