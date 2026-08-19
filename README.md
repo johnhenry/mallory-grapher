@@ -65,5 +65,30 @@ It deliberately does NOT own:
 
 ## Status
 
-Pre-design. See the issue tracker for the actual scoping work — this
-README is a starting point, not a spec.
+**v1 implemented.** [docs/design.md](docs/design.md) is the settled
+design; the session runtime, op catalog, MCP tool surface, and both
+transports are built and tested.
+
+## Usage
+
+```bash
+# stdio (the transport MCP hosts speak natively -- e.g. `claude mcp add`)
+npx mallory-grapher
+
+# Streamable HTTP on http://localhost:3920/mcp (or a custom port)
+npx mallory-grapher --http
+npx mallory-grapher --http 8123
+```
+
+Tools: `session_open` (kind `generic` or `graph-theory`), `session_close`,
+`session_list`, `session_set_cell`, `session_get_cell`,
+`session_list_cells`, `session_define`. Computed cells are declared as
+JSON define-specs over a server-side op catalog (`math_eval`,
+`graph_parse_edge_list`, `graph_analyze`, `graph_bfs`/`dfs`/`dijkstra`)
+with `{"$cell": "name"}` live references — see
+[docs/design.md §5](docs/design.md).
+
+Resource guards default modest and are overridable:
+`MALLORY_GRAPHER_MAX_SESSIONS` (16), `MALLORY_GRAPHER_MAX_CELLS` (512),
+`MALLORY_GRAPHER_EVAL_BUDGET_MS` (250), `MALLORY_GRAPHER_MAX_PAYLOAD_BYTES`
+(262144).
