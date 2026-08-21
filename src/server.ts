@@ -139,6 +139,36 @@ export function buildServer(table: SessionTable = new SessionTable()): McpServer
   );
 
   server.registerTool(
+    "session_snapshot",
+    {
+      description: "Serialize a session's portable state (issue #6): current free-cell values plus define-specs. Does NOT include computed-cell cache -- those re-derive from define() on resume. Hand the returned document to session_resume, possibly on a different mallory-grapher process, to reconstruct an equivalent session.",
+      inputSchema: { sessionId: z.string() },
+    },
+    async ({ sessionId }) => {
+      try {
+        return ok(await table.snapshot(sessionId));
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "session_resume",
+    {
+      description: "Reconstruct a session from a session_snapshot document. A resumed session is freshly opened, not re-authorized from wherever it paused -- every existing resource guard (session/cell/payload limits) applies exactly as it would to session_open.",
+      inputSchema: { snapshot: z.object({ v: z.literal(1), kind: z.enum(SESSION_KINDS), free: z.record(z.string(), z.unknown()), defines: z.array(z.object({ cell: z.string(), op: z.string(), args: z.record(z.string(), z.unknown()) })) }) },
+    },
+    ({ snapshot }) => {
+      try {
+        return ok(table.resume(snapshot));
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
     "session_explain_cell",
     {
       description:

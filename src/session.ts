@@ -32,6 +32,27 @@ export interface SessionInfo {
  * `session_list_cells` already have, rather than this tool guessing how
  * deep is enough and risking an enormous nested payload for a wide graph.
  */
+/**
+ * A session's portable state (issue #6, the "closure manifest" idea
+ * applied to a whole session): free-cell values plus define-specs, NOT
+ * computed-cell cache -- those just re-derive from `define()` on resume,
+ * cheap by design (`graph.define` is lazy; nothing computes until a
+ * later `get`). Free-cell values are ALWAYS plain JSON by construction:
+ * the only ways a free cell gets a value are `session_open`'s preset/
+ * caller seed and `session_set_cell`, both `Record<string, unknown>`
+ * over the MCP boundary (JSON-only) -- a computed cell's own rich value
+ * (e.g. a `Graph` instance from `graph_parse_edge_list`) can only ever
+ * exist on a COMPUTED cell, never a free one, so there's no rich-value
+ * round-trip concern here at all, unlike `session_get_cell`'s
+ * `projectValue`.
+ */
+export interface SessionSnapshot {
+  v: 1;
+  kind: SessionKind;
+  free: Record<string, unknown>;
+  defines: DefineSpec[];
+}
+
 export interface CellExplanation {
   cell: string;
   role: "free" | "computed";
@@ -124,6 +145,71 @@ export class SessionTable {
       cellCount: s.graph.list().length,
       createdAt: s.createdAt,
     }));
+  }
+
+  /**
+   * Serializes a session's portable state (issue #6): current free-cell
+   * values plus define-specs, NOT computed-cell cache (see
+   * `SessionSnapshot`'s own doc comment on why that's fine to drop).
+   * Enqueued like every other per-session read (`getCell`/`listCells`),
+   * so it can't observe a torn state mid another queued call.
+   */
+  async snapshot(sessionId: string): Promise<SessionSnapshot> {
+    const session = this.lookup(sessionId);
+    return this.enqueue(session, () => {
+      const free: Record<string, unknown> = {};
+      for (const c of session.graph.list()) {
+        if (c.hasValue && !session.defines.has(c.id)) free[c.id] = session.graph.get(c.id);
+      }
+      return { v: 1 as const, kind: session.kind, free, defines: [...session.defines.values()] };
+    });
+  }
+
+  /**
+   * Reconstructs a session from a `snapshot()` document, on THIS table
+   * (possibly a different process than the one that produced the
+   * snapshot -- the document is the only thing that needs to travel;
+   * resume needs no special cross-process machinery beyond it). Applies
+   * free values then defines, same order `open()`'s own preset-seeding
+   * uses and for the same reason (defines are lazy, so order between the
+   * two groups never matters, but every free value should land before
+   * any define might read it via `$cell`).
+   *
+   * Every guard `applySet`/`applyDefine` already enforce (payload size,
+   * cell-count budget, unknown-op) applies exactly the same way here,
+   * satisfying issue #6's own "respect the existing guards on the
+   * RESUMING side" requirement for free -- reusing those private methods
+   * rather than re-deriving the checks is what makes that automatic. The
+   * resumed session does NOT re-apply `kind`'s own preset seed -- the
+   * snapshot's `free` already contains whatever came from the ORIGINAL
+   * session's preset seed at its own open() time (preset seeds become
+   * ordinary free cells immediately after seeding), so redoing it here
+   * would silently clobber any value the original session's caller had
+   * since changed.
+   *
+   * Deliberately does NOT attempt to resume mid-flight async state or
+   * carry forward any notion of prior "authority" -- out of scope per
+   * the issue's own explicit v1 boundary; a resumed session is exactly as
+   * trusted (or not) as any other freshly-opened one.
+   */
+  resume(snapshot: SessionSnapshot): { sessionId: string } {
+    if (snapshot.v !== 1) throw new SessionError(`unsupported snapshot version ${snapshot.v} -- this server understands v1`);
+    if (this.sessions.size >= this.limits.maxSessions) {
+      throw new SessionError(`session limit reached (${this.limits.maxSessions}) -- close one with session_close, or raise MALLORY_GRAPHER_MAX_SESSIONS`);
+    }
+    if (!PRESETS[snapshot.kind]) throw new SessionError(`unknown session kind "${snapshot.kind}" -- expected one of: ${Object.keys(PRESETS).join(", ")}`);
+    const session: Session = {
+      id: randomUUID(),
+      kind: snapshot.kind,
+      graph: new CellGraph(),
+      defines: new Map(),
+      createdAt: new Date().toISOString(),
+      queue: Promise.resolve(),
+    };
+    for (const [cell, value] of Object.entries(snapshot.free)) this.applySet(session, cell, value);
+    for (const spec of snapshot.defines) this.applyDefine(session, spec);
+    this.sessions.set(session.id, session);
+    return { sessionId: session.id };
   }
 
   private assertCellBudget(session: Session, cell: string): void {

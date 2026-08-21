@@ -149,6 +149,77 @@ test("explainCell: a dependency that WAS explicitly set (even to null) reports i
   assert.deepEqual(explanation.dependencies, [{ cell: "a", value: null }]);
 });
 
+// ---- snapshot/resume (issue #6) -------------------------------------------
+
+test("snapshot: captures free-cell values and define-specs, not computed-cell cache", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("generic");
+  await table.setCell(sessionId, "a", 3);
+  await table.define(sessionId, { cell: "doubled", op: "math_eval", args: { expr: "2 * a", vars: { a: { $cell: "a" } } } });
+  await table.getCell(sessionId, "doubled"); // force a compute, to prove the cache isn't what gets captured
+  const snapshot = await table.snapshot(sessionId);
+  assert.equal(snapshot.v, 1);
+  assert.equal(snapshot.kind, "generic");
+  assert.deepEqual(snapshot.free, { a: 3 });
+  assert.deepEqual(snapshot.defines, [{ cell: "doubled", op: "math_eval", args: { expr: "2 * a", vars: { a: { $cell: "a" } } } }]);
+});
+
+test("resume: reconstructs an equivalent session on the SAME table, with a NEW sessionId, that recomputes correctly", async () => {
+  const table = new SessionTable();
+  const { sessionId: original } = table.open("generic");
+  await table.setCell(original, "a", 3);
+  await table.define(original, { cell: "doubled", op: "math_eval", args: { expr: "2 * a", vars: { a: { $cell: "a" } } } });
+  const snapshot = await table.snapshot(original);
+
+  const { sessionId: resumed } = table.resume(snapshot);
+  assert.notEqual(resumed, original);
+  assert.deepEqual(await table.getCell(resumed, "a"), { value: 3 });
+  assert.deepEqual(await table.getCell(resumed, "doubled"), { value: 6 });
+  // Reactivity survives the round trip -- resumed is a live session, not a frozen copy.
+  await table.setCell(resumed, "a", 10);
+  assert.deepEqual(await table.getCell(resumed, "doubled"), { value: 20 });
+});
+
+test("resume: does NOT re-apply the kind's own preset seed -- only what's in the snapshot's own free values", async () => {
+  const table = new SessionTable();
+  const { sessionId: original } = table.open("graph-theory");
+  await table.setCell(original, "startVertex", "C"); // change from the preset's own default "A"
+  const snapshot = await table.snapshot(original);
+  const { sessionId: resumed } = table.resume(snapshot);
+  assert.deepEqual(await table.getCell(resumed, "startVertex"), { value: "C" }, "must reflect the changed value, not silently revert to the preset default");
+});
+
+test("resume: rejects an unsupported snapshot version", () => {
+  const table = new SessionTable();
+  assert.throws(() => table.resume({ v: 2 as never, kind: "generic", free: {}, defines: [] }), /unsupported snapshot version/);
+});
+
+test("resume: rejects an unknown session kind", () => {
+  const table = new SessionTable();
+  assert.throws(() => table.resume({ v: 1, kind: "nope" as never, free: {}, defines: [] }), /unknown session kind/);
+});
+
+test("resume: rejects a define-spec with an unknown op, same guard as a live session_define call", () => {
+  const table = new SessionTable();
+  assert.throws(() => table.resume({ v: 1, kind: "generic", free: {}, defines: [{ cell: "x", op: "nope", args: {} }] }), /math_eval/);
+});
+
+test("resume: respects the session-limit guard on the resuming side", () => {
+  const table = new SessionTable({ maxSessions: 1, maxCells: 100, evalBudgetMs: 1000, maxPayloadBytes: 65536 });
+  table.open("generic");
+  assert.throws(() => table.resume({ v: 1, kind: "generic", free: {}, defines: [] }), /session limit reached/);
+});
+
+test("resume: respects the cell-count guard on the resuming side, even if the original session was under a looser limit when it was snapshotted", async () => {
+  const roomyTable = new SessionTable({ maxSessions: 16, maxCells: 10, evalBudgetMs: 1000, maxPayloadBytes: 65536 });
+  const { sessionId } = roomyTable.open("generic");
+  for (let i = 0; i < 5; i++) await roomyTable.setCell(sessionId, `c${i}`, i);
+  const snapshot = await roomyTable.snapshot(sessionId);
+
+  const strictTable = new SessionTable({ maxSessions: 16, maxCells: 3, evalBudgetMs: 1000, maxPayloadBytes: 65536 });
+  assert.throws(() => strictTable.resume(snapshot), /cell limit reached/);
+});
+
 test("set over a computed cell demotes it to a free cell (list_cells role flips)", async () => {
   const table = new SessionTable();
   const { sessionId } = table.open("generic");

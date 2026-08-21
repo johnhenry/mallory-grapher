@@ -84,7 +84,10 @@ Tools: `session_open` (kind `generic` or `graph-theory`), `session_close`,
 `session_list`, `session_set_cell`, `session_get_cell`,
 `session_list_cells`, `session_explain_cell` (a cell's own op/args/
 immediate dependencies with their current values, one level -- issue #5),
-`session_define`. Computed cells are declared as
+`session_snapshot`/`session_resume` (serialize a session's free-cell
+values + define-specs; reconstruct an equivalent session, possibly on a
+different process -- issue #6), `session_define`. Computed cells are
+declared as
 JSON define-specs over a server-side op catalog (`math_eval`,
 `graph_parse_edge_list`, `graph_analyze`, `graph_bfs`/`dfs`/`dijkstra`)
 with `{"$cell": "name"}` live references — see
