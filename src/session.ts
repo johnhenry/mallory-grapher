@@ -10,7 +10,7 @@
 import { randomUUID } from "node:crypto";
 import { CellGraph } from "./cell-graph.ts";
 import { DEFAULT_LIMITS, type SessionLimits } from "./limits.ts";
-import { extractCellRefs, isCellRef, OP_CATALOG, projectValue, type DefineSpec } from "./ops.ts";
+import { extractCellRefs, isCellRef, OP_CATALOG, projectValue, type DefineSpec, type OpCatalog } from "./ops.ts";
 import { PRESETS, type SessionKind } from "./presets.ts";
 
 /** A structured, caller-fixable failure (bad args, limit exceeded, unknown id) -- the MCP surface maps these to tool errors; anything else is a bug. */
@@ -23,15 +23,6 @@ export interface SessionInfo {
   createdAt: string;
 }
 
-/**
- * A cell's own derivation (issue #5's provenance/audit trail): what
- * produced it, and the current values of whatever it immediately reads.
- * Deliberately ONE level, not a recursive tree -- an agent that needs to
- * go deeper just calls `explainCell` again on a listed dependency's own
- * `cell` name, same "compose small calls" shape `session_get_cell` and
- * `session_list_cells` already have, rather than this tool guessing how
- * deep is enough and risking an enormous nested payload for a wide graph.
- */
 /**
  * A session's portable state (issue #6, the "closure manifest" idea
  * applied to a whole session): free-cell values plus define-specs, NOT
@@ -53,6 +44,15 @@ export interface SessionSnapshot {
   defines: DefineSpec[];
 }
 
+/**
+ * A cell's own derivation (issue #5's provenance/audit trail): what
+ * produced it, and the current values of whatever it immediately reads.
+ * Deliberately ONE level, not a recursive tree -- an agent that needs to
+ * go deeper just calls `explainCell` again on a listed dependency's own
+ * `cell` name, same "compose small calls" shape `session_get_cell` and
+ * `session_list_cells` already have, rather than this tool guessing how
+ * deep is enough and risking an enormous nested payload for a wide graph.
+ */
 export interface CellExplanation {
   cell: string;
   role: "free" | "computed";
@@ -68,11 +68,13 @@ interface Session {
   id: string;
   kind: SessionKind;
   graph: CellGraph;
-  /** cell -> the spec that defined it, for `session_list_cells`'s `op` field and (v2) serialization. */
+  /** cell -> the spec that defined it, for `session_list_cells`'s `op` field, `explainCell` (#5), and `snapshot` (#6). */
   defines: Map<string, DefineSpec>;
   createdAt: string;
   /** Tail of the per-session serialization queue (§3). */
   queue: Promise<unknown>;
+  /** Capabilities granted at `open()`/`resume()` time (issue #7) -- checked against an op's own `requiresCapability` in `applyDefine`, never widened afterward (no tool grants a capability to an already-open session). */
+  capabilities: ReadonlySet<string>;
 }
 
 function payloadBytes(value: unknown): number {
@@ -82,8 +84,11 @@ function payloadBytes(value: unknown): number {
 export class SessionTable {
   private readonly sessions = new Map<string, Session>();
   private readonly limits: SessionLimits;
-  constructor(limits: SessionLimits = DEFAULT_LIMITS) {
+  private readonly catalog: OpCatalog;
+  /** `catalog` defaults to the real `OP_CATALOG` -- injectable (same shape as `limits`) so tests can exercise #7's capability gating against a synthetic op without adding a fake entry to the production catalog. */
+  constructor(limits: SessionLimits = DEFAULT_LIMITS, catalog: OpCatalog = OP_CATALOG) {
     this.limits = limits;
+    this.catalog = catalog;
   }
 
   /**
@@ -104,7 +109,8 @@ export class SessionTable {
     return session;
   }
 
-  open(kind: SessionKind, seed?: Record<string, unknown>): { sessionId: string } {
+  /** `capabilities` (issue #7): granted for this session's whole lifetime, checked against any op's own `requiresCapability` in `applyDefine`. Defaults to none -- matching the existing default-off write posture, a session gets nothing beyond what pure/read-only ops need unless explicitly granted here. */
+  open(kind: SessionKind, seed?: Record<string, unknown>, capabilities?: readonly string[]): { sessionId: string } {
     if (this.sessions.size >= this.limits.maxSessions) {
       throw new SessionError(`session limit reached (${this.limits.maxSessions}) -- close one with session_close, or raise MALLORY_GRAPHER_MAX_SESSIONS`);
     }
@@ -117,6 +123,7 @@ export class SessionTable {
       defines: new Map(),
       createdAt: new Date().toISOString(),
       queue: Promise.resolve(),
+      capabilities: new Set(capabilities ?? []),
     };
     // Preset seeds first, then caller seeds (so a caller can override a
     // preset's defaults in the same open call), then preset defines --
@@ -190,9 +197,13 @@ export class SessionTable {
    * Deliberately does NOT attempt to resume mid-flight async state or
    * carry forward any notion of prior "authority" -- out of scope per
    * the issue's own explicit v1 boundary; a resumed session is exactly as
-   * trusted (or not) as any other freshly-opened one.
+   * trusted (or not) as any other freshly-opened one. Concretely (issue
+   * #7): `capabilities` is NOT part of `SessionSnapshot` and is never
+   * inferred from the original session -- a resume grants exactly what
+   * this call's own `capabilities` arg says (default none), same as
+   * `open()`, never whatever the pre-pause session happened to hold.
    */
-  resume(snapshot: SessionSnapshot): { sessionId: string } {
+  resume(snapshot: SessionSnapshot, capabilities?: readonly string[]): { sessionId: string } {
     if (snapshot.v !== 1) throw new SessionError(`unsupported snapshot version ${snapshot.v} -- this server understands v1`);
     if (this.sessions.size >= this.limits.maxSessions) {
       throw new SessionError(`session limit reached (${this.limits.maxSessions}) -- close one with session_close, or raise MALLORY_GRAPHER_MAX_SESSIONS`);
@@ -205,6 +216,7 @@ export class SessionTable {
       defines: new Map(),
       createdAt: new Date().toISOString(),
       queue: Promise.resolve(),
+      capabilities: new Set(capabilities ?? []),
     };
     for (const [cell, value] of Object.entries(snapshot.free)) this.applySet(session, cell, value);
     for (const spec of snapshot.defines) this.applyDefine(session, spec);
@@ -238,13 +250,22 @@ export class SessionTable {
    * with a structured error instead of hanging the server. (A single op
    * that overruns internally can't be preempted -- the check is between
    * ops, which is where cascades spend their fan-out anyway.)
+   *
+   * Capability check (issue #7) happens HERE, before `graph.define` is
+   * even called -- an op's own `fn` never runs, and no compute closure is
+   * ever registered, when the session lacks a declared requirement. That's
+   * "checked statically against the op catalog entry, not left to the
+   * op's own implementation to self-police," per the issue's own scope.
    */
   private applyDefine(session: Session, spec: DefineSpec): void {
     if (payloadBytes(spec) > this.limits.maxPayloadBytes) {
       throw new SessionError(`define spec for "${spec.cell}" exceeds the ${this.limits.maxPayloadBytes}-byte payload limit (MALLORY_GRAPHER_MAX_PAYLOAD_BYTES)`);
     }
-    const catalogEntry = OP_CATALOG[spec.op];
-    if (!catalogEntry) throw new SessionError(`unknown op "${spec.op}" -- expected one of: ${Object.keys(OP_CATALOG).join(", ")}`);
+    const catalogEntry = this.catalog[spec.op];
+    if (!catalogEntry) throw new SessionError(`unknown op "${spec.op}" -- expected one of: ${Object.keys(this.catalog).join(", ")}`);
+    if (catalogEntry.requiresCapability && !session.capabilities.has(catalogEntry.requiresCapability)) {
+      throw new SessionError(`op "${spec.op}" requires capability "${catalogEntry.requiresCapability}", not granted to this session -- pass it in session_open's/session_resume's own "capabilities" arg`);
+    }
     if (typeof spec.cell !== "string" || spec.cell.length === 0) throw new SessionError("define spec needs a non-empty cell name");
     this.assertCellBudget(session, spec.cell);
     const graph = session.graph;

@@ -71,6 +71,28 @@ export type ResolvedArgs = Record<string, unknown>;
 
 export type OpFn = (args: ResolvedArgs) => unknown;
 
+/**
+ * A catalog entry's optional declared capability requirement (issue #7):
+ * when set, `session_define` rejects using this op unless the session was
+ * opened with this capability granted (`session_open`'s own `capabilities`
+ * arg) -- checked statically against this field before the op ever runs,
+ * not left to the op's own `fn` to self-police. Generalizes this repo's
+ * existing single global env-var write gate (README's "Write-path auth
+ * precedent") into an explicit, per-op, per-session one; see
+ * `SessionTable`'s own doc comment on `applyDefine` for the enforcement
+ * side. No entry in the shipped `OP_CATALOG` below declares one yet --
+ * every current op is pure/read-only -- this is the mechanism a future
+ * effectful op would opt into, built ahead of having one per the issue's
+ * own "natural next step on the existing pattern" framing.
+ */
+export interface OpCatalogEntry {
+  fn: OpFn;
+  description: string;
+  requiresCapability?: string;
+}
+
+export type OpCatalog = Record<string, OpCatalogEntry>;
+
 function asString(args: ResolvedArgs, name: string): string {
   const v = args[name];
   if (typeof v !== "string") throw new Error(`op arg "${name}" must be a string, got ${typeof v}`);
@@ -124,7 +146,7 @@ export function parseEdgeListText(text: string, directed: boolean): Graph<string
  * args and value shape in `description` so the MCP surface can list them
  * verbatim (a future `catalog_list` tool needs no second source of truth).
  */
-export const OP_CATALOG: Record<string, { fn: OpFn; description: string }> = {
+export const OP_CATALOG: OpCatalog = {
   math_eval: {
     description:
       'Evaluate a mallory-math Symbolic expression string over named numeric variables. args: { expr: string, vars?: { name: number | {"$cell": ...} } }. value: number.',

@@ -91,7 +91,12 @@ declared as
 JSON define-specs over a server-side op catalog (`math_eval`,
 `graph_parse_edge_list`, `graph_analyze`, `graph_bfs`/`dfs`/`dijkstra`)
 with `{"$cell": "name"}` live references — see
-[docs/design.md §5](docs/design.md).
+[docs/design.md §5](docs/design.md). An op MAY declare a
+`requiresCapability` (issue #7); `session_define` rejects it unless
+`session_open`/`session_resume`'s own optional `capabilities` arg granted
+it for that session (default none — matching the existing write-path
+gating precedent below, just per-op instead of one global switch). No op
+in the catalog above declares one yet.
 
 Resource guards default modest and are overridable:
 `MALLORY_GRAPHER_MAX_SESSIONS` (16), `MALLORY_GRAPHER_MAX_CELLS` (512),

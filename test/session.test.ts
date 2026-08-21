@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_LIMITS } from "../src/limits.ts";
-import { extractCellRefs, parseEdgeListText, projectValue } from "../src/ops.ts";
+import { extractCellRefs, parseEdgeListText, projectValue, type OpCatalog } from "../src/ops.ts";
 import { SessionError, SessionTable } from "../src/session.ts";
 
 // ---- op catalog --------------------------------------------------------
@@ -218,6 +218,82 @@ test("resume: respects the cell-count guard on the resuming side, even if the or
 
   const strictTable = new SessionTable({ maxSessions: 16, maxCells: 3, evalBudgetMs: 1000, maxPayloadBytes: 65536 });
   assert.throws(() => strictTable.resume(snapshot), /cell limit reached/);
+});
+
+// ---- capability-gated ops (issue #7) ---------------------------------------
+
+/** A synthetic catalog with one plain op and one capability-gated op, injected into a SessionTable rather than adding a fake entry to the real production OP_CATALOG. */
+const TEST_CATALOG: OpCatalog = {
+  plain_add_one: { description: "test-only: value + 1", fn: (args) => (args.value as number) + 1 },
+  gated_write: { description: "test-only: pretends to perform a write", requiresCapability: "write", fn: () => "wrote" },
+};
+
+test("applyDefine: a session with NO granted capabilities can use a plain (ungated) op", async () => {
+  const table = new SessionTable(undefined, TEST_CATALOG);
+  const { sessionId } = table.open("generic");
+  await table.setCell(sessionId, "v", 1);
+  await table.define(sessionId, { cell: "result", op: "plain_add_one", args: { value: { $cell: "v" } } });
+  assert.deepEqual(await table.getCell(sessionId, "result"), { value: 2 });
+});
+
+test("applyDefine: a session with NO granted capabilities is rejected from defining a capability-gated op, BEFORE the op ever runs", async () => {
+  const table = new SessionTable(undefined, TEST_CATALOG);
+  const { sessionId } = table.open("generic");
+  await assert.rejects(table.define(sessionId, { cell: "x", op: "gated_write", args: {} }), /requires capability "write"/);
+  // The define itself must have been rejected, not just deferred -- the cell was never even registered.
+  assert.deepEqual(await table.listCells(sessionId), []);
+});
+
+test("applyDefine: a session opened WITH the matching capability may define and use the gated op", async () => {
+  const table = new SessionTable(undefined, TEST_CATALOG);
+  const { sessionId } = table.open("generic", undefined, ["write"]);
+  await table.define(sessionId, { cell: "x", op: "gated_write", args: {} });
+  assert.deepEqual(await table.getCell(sessionId, "x"), { value: "wrote" });
+});
+
+test("applyDefine: an UNRELATED granted capability doesn't satisfy a different requirement", async () => {
+  const table = new SessionTable(undefined, TEST_CATALOG);
+  const { sessionId } = table.open("generic", undefined, ["read-only-extra"]);
+  await assert.rejects(table.define(sessionId, { cell: "x", op: "gated_write", args: {} }), /requires capability "write"/);
+});
+
+test("resume: capabilities are NOT carried forward from the original session -- resuming a snapshot that used a gated op WITHOUT re-granting the capability fails outright (can't even reconstruct the define), and succeeds once it's re-granted", async () => {
+  const table = new SessionTable(undefined, TEST_CATALOG);
+  const { sessionId: original } = table.open("generic", undefined, ["write"]);
+  await table.define(original, { cell: "x", op: "gated_write", args: {} });
+  const snapshot = await table.snapshot(original);
+
+  // resume() itself replays snapshot.defines -- with no capabilities arg,
+  // re-applying the gated "x" define fails the same way a live
+  // session_define call would, so the WHOLE resume fails, not just a
+  // later use of the cell.
+  assert.throws(() => table.resume(snapshot), /requires capability "write"/);
+
+  const { sessionId: resumedWithCap } = table.resume(snapshot, ["write"]);
+  assert.deepEqual(await table.getCell(resumedWithCap, "x"), { value: "wrote" });
+});
+
+test("resume: a snapshot with NO gated defines resumes fine without any capabilities, even if the original session happened to hold some", async () => {
+  const table = new SessionTable(undefined, TEST_CATALOG);
+  const { sessionId: original } = table.open("generic", undefined, ["write"]); // granted, but never used by a define
+  await table.setCell(original, "a", 1);
+  await table.define(original, { cell: "b", op: "plain_add_one", args: { value: { $cell: "a" } } });
+  const snapshot = await table.snapshot(original);
+
+  const { sessionId: resumed } = table.resume(snapshot); // no capabilities arg -- fine, nothing in the snapshot needs one
+  assert.deepEqual(await table.getCell(resumed, "b"), { value: 2 });
+  await assert.rejects(table.define(resumed, { cell: "x", op: "gated_write", args: {} }), /requires capability "write"/, "the resumed session itself has no capabilities, even though the original did");
+});
+
+test("the real production OP_CATALOG has no capability-gated ops yet -- every current op is pure/read-only, so a default (no-capability) session can use all of them", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("generic");
+  await table.setCell(sessionId, "a", 3);
+  // math_eval is the simplest real op to exercise; if this ever starts
+  // throwing "requires capability", it means someone added a requirement
+  // to a real catalog entry without a session granting it in this test.
+  await table.define(sessionId, { cell: "b", op: "math_eval", args: { expr: "a + 1", vars: { a: { $cell: "a" } } } });
+  assert.deepEqual(await table.getCell(sessionId, "b"), { value: 4 });
 });
 
 test("set over a computed cell demotes it to a free cell (list_cells role flips)", async () => {

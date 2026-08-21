@@ -37,9 +37,9 @@ function err(e: unknown): ToolResult {
 
 const SESSION_KINDS = Object.keys(PRESETS) as [SessionKind, ...SessionKind[]];
 
-/** Every op with its self-documenting description -- inlined into session_define's own description so an agent can discover the catalog without a separate round-trip. */
+/** Every op with its self-documenting description (and declared capability requirement, issue #7, if any) -- inlined into session_define's own description so an agent can discover the catalog without a separate round-trip. */
 const CATALOG_DOC = Object.entries(OP_CATALOG)
-  .map(([name, entry]) => `- ${name}: ${entry.description}`)
+  .map(([name, entry]) => `- ${name}${entry.requiresCapability ? ` (requires capability "${entry.requiresCapability}")` : ""}: ${entry.description}`)
   .join("\n");
 
 export function buildServer(table: SessionTable = new SessionTable()): McpServer {
@@ -48,15 +48,16 @@ export function buildServer(table: SessionTable = new SessionTable()): McpServer
   server.registerTool(
     "session_open",
     {
-      description: `Open a reactive cell session. kind "generic" starts empty; "graph-theory" pre-wires an edge-list -> analysis -> BFS pipeline (input cells: edgeListText, directed, startVertex; computed cells: parsed, analysis, bfsOrder). Optional seed sets input cells in the same call (overriding preset defaults). Sessions are in-memory and die with the server.`,
+      description: `Open a reactive cell session. kind "generic" starts empty; "graph-theory" pre-wires an edge-list -> analysis -> BFS pipeline (input cells: edgeListText, directed, startVertex; computed cells: parsed, analysis, bfsOrder). Optional seed sets input cells in the same call (overriding preset defaults). Optional capabilities (issue #7) grants this session use of ops that declare a requiresCapability -- see session_define's own description for which ops (if any) need one; default none. Sessions are in-memory and die with the server.`,
       inputSchema: {
         kind: z.enum(SESSION_KINDS),
         seed: z.record(z.string(), z.unknown()).optional(),
+        capabilities: z.array(z.string()).optional(),
       },
     },
-    ({ kind, seed }) => {
+    ({ kind, seed, capabilities }) => {
       try {
-        return ok(table.open(kind, seed));
+        return ok(table.open(kind, seed, capabilities));
       } catch (e) {
         return err(e);
       }
@@ -156,12 +157,16 @@ export function buildServer(table: SessionTable = new SessionTable()): McpServer
   server.registerTool(
     "session_resume",
     {
-      description: "Reconstruct a session from a session_snapshot document. A resumed session is freshly opened, not re-authorized from wherever it paused -- every existing resource guard (session/cell/payload limits) applies exactly as it would to session_open.",
-      inputSchema: { snapshot: z.object({ v: z.literal(1), kind: z.enum(SESSION_KINDS), free: z.record(z.string(), z.unknown()), defines: z.array(z.object({ cell: z.string(), op: z.string(), args: z.record(z.string(), z.unknown()) })) }) },
+      description:
+        "Reconstruct a session from a session_snapshot document. A resumed session is freshly opened, not re-authorized from wherever it paused -- every existing resource guard (session/cell/payload limits) applies exactly as it would to session_open, and capabilities (issue #7) are NOT carried forward from the original session: pass this call's own optional capabilities to grant any, default none.",
+      inputSchema: {
+        snapshot: z.object({ v: z.literal(1), kind: z.enum(SESSION_KINDS), free: z.record(z.string(), z.unknown()), defines: z.array(z.object({ cell: z.string(), op: z.string(), args: z.record(z.string(), z.unknown()) })) }),
+        capabilities: z.array(z.string()).optional(),
+      },
     },
-    ({ snapshot }) => {
+    ({ snapshot, capabilities }) => {
       try {
-        return ok(table.resume(snapshot));
+        return ok(table.resume(snapshot, capabilities));
       } catch (e) {
         return err(e);
       }
