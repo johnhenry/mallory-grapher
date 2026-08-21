@@ -10,7 +10,7 @@
 import { randomUUID } from "node:crypto";
 import { CellGraph } from "./cell-graph.ts";
 import { DEFAULT_LIMITS, type SessionLimits } from "./limits.ts";
-import { isCellRef, OP_CATALOG, projectValue, type DefineSpec } from "./ops.ts";
+import { extractCellRefs, isCellRef, OP_CATALOG, projectValue, type DefineSpec } from "./ops.ts";
 import { PRESETS, type SessionKind } from "./presets.ts";
 
 /** A structured, caller-fixable failure (bad args, limit exceeded, unknown id) -- the MCP surface maps these to tool errors; anything else is a bug. */
@@ -21,6 +21,26 @@ export interface SessionInfo {
   kind: SessionKind;
   cellCount: number;
   createdAt: string;
+}
+
+/**
+ * A cell's own derivation (issue #5's provenance/audit trail): what
+ * produced it, and the current values of whatever it immediately reads.
+ * Deliberately ONE level, not a recursive tree -- an agent that needs to
+ * go deeper just calls `explainCell` again on a listed dependency's own
+ * `cell` name, same "compose small calls" shape `session_get_cell` and
+ * `session_list_cells` already have, rather than this tool guessing how
+ * deep is enough and risking an enormous nested payload for a wide graph.
+ */
+export interface CellExplanation {
+  cell: string;
+  role: "free" | "computed";
+  op?: string;
+  /** Raw args as given to `session_define`, `$cell` markers included -- lets a caller see literal values alongside references without a second round trip. */
+  args?: Record<string, unknown>;
+  /** This cell's own immediate upstream cells (from `extractCellRefs(args)`), each with its CURRENT value already resolved -- a free cell has none. */
+  dependencies: Array<{ cell: string; value: unknown }>;
+  value: unknown;
 }
 
 interface Session {
@@ -189,6 +209,29 @@ export class SessionTable {
           throw new SessionError(`cell "${cell}" has no value in this session -- session_list_cells shows what exists`);
         }
         return { value: projectValue(session.graph.get(cell)) };
+      }),
+    );
+  }
+
+  async explainCell(sessionId: string, cell: string): Promise<CellExplanation> {
+    const session = this.lookup(sessionId);
+    return this.enqueue(session, () =>
+      this.withDeadline(() => {
+        if (!session.graph.hasValue(cell) && !session.defines.has(cell)) {
+          throw new SessionError(`cell "${cell}" has no value in this session -- session_list_cells shows what exists`);
+        }
+        const value = projectValue(session.graph.get(cell));
+        const spec = session.defines.get(cell);
+        if (!spec) return { cell, role: "free" as const, dependencies: [], value };
+        const dependencies = extractCellRefs(spec.args).map((dep) => ({
+          cell: dep,
+          // A referenced cell that was never itself set/defined still
+          // resolves (CellGraph auto-creates an empty record on read --
+          // see listCells's own comment on the same behavior), so this
+          // reports `undefined` for it rather than throwing mid-explanation.
+          value: session.graph.hasValue(dep) ? projectValue(session.graph.get(dep)) : undefined,
+        }));
+        return { cell, role: "computed" as const, op: spec.op, args: spec.args, dependencies, value };
       }),
     );
   }

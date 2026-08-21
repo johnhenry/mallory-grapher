@@ -139,6 +139,22 @@ export function buildServer(table: SessionTable = new SessionTable()): McpServer
   );
 
   server.registerTool(
+    "session_explain_cell",
+    {
+      description:
+        'Explain a cell\'s own derivation (issue #5): its role (free input vs computed), the op and raw args that defined it (if computed), its immediate upstream cells with their current values, and its own current value. One level only -- call again on a listed dependency\'s "cell" name to go deeper.',
+      inputSchema: { sessionId: z.string(), cell: z.string() },
+    },
+    async ({ sessionId, cell }) => {
+      try {
+        return ok(await table.explainCell(sessionId, cell));
+      } catch (e) {
+        return err(e);
+      }
+    },
+  );
+
+  server.registerTool(
     "session_define",
     {
       description: `Define a computed cell from a catalog op. args values may be literal JSON or live cell references ({"$cell": "name"}) -- referenced cells become reactive dependencies, so the cell recomputes when they change. Available ops:\n${CATALOG_DOC}`,

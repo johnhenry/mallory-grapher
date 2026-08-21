@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_LIMITS } from "../src/limits.ts";
-import { parseEdgeListText, projectValue } from "../src/ops.ts";
+import { extractCellRefs, parseEdgeListText, projectValue } from "../src/ops.ts";
 import { SessionError, SessionTable } from "../src/session.ts";
 
 // ---- op catalog --------------------------------------------------------
@@ -85,6 +85,68 @@ test("define: unknown op throws a SessionError listing the catalog", async () =>
   const table = new SessionTable();
   const { sessionId } = table.open("generic");
   await assert.rejects(table.define(sessionId, { cell: "x", op: "nope", args: {} }), /math_eval/);
+});
+
+// ---- extractCellRefs (issue #5's provenance building block) --------------
+
+test("extractCellRefs: finds $cell markers nested in objects and arrays, ignores plain values, dedupes repeats", () => {
+  assert.deepEqual(extractCellRefs({ expr: "a + b", vars: { a: { $cell: "a" }, b: { $cell: "b" } } }).sort(), ["a", "b"]);
+  assert.deepEqual(extractCellRefs({ list: [{ $cell: "x" }, 1, "plain", { $cell: "x" }] }), ["x"]);
+  assert.deepEqual(extractCellRefs({ flat: 1, other: "no refs here" }), []);
+});
+
+// ---- explainCell (issue #5) -----------------------------------------------
+
+test("explainCell: a free (input) cell reports role 'free', its value, and no dependencies", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("generic");
+  await table.setCell(sessionId, "a", 3);
+  assert.deepEqual(await table.explainCell(sessionId, "a"), { cell: "a", role: "free", dependencies: [], value: 3 });
+});
+
+test("explainCell: a computed cell reports its op, raw args ($cell markers included), immediate dependencies with their current values, and its own value", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("generic");
+  await table.setCell(sessionId, "a", 3);
+  await table.define(sessionId, { cell: "doubled", op: "math_eval", args: { expr: "2 * a", vars: { a: { $cell: "a" } } } });
+  const explanation = await table.explainCell(sessionId, "doubled");
+  assert.equal(explanation.role, "computed");
+  assert.equal(explanation.op, "math_eval");
+  assert.deepEqual(explanation.args, { expr: "2 * a", vars: { a: { $cell: "a" } } });
+  assert.deepEqual(explanation.dependencies, [{ cell: "a", value: 3 }]);
+  assert.equal(explanation.value, 6);
+});
+
+test("explainCell: reflects the CURRENT dependency value, not a stale one, after an upstream set", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("generic");
+  await table.setCell(sessionId, "a", 3);
+  await table.define(sessionId, { cell: "doubled", op: "math_eval", args: { expr: "2 * a", vars: { a: { $cell: "a" } } } });
+  await table.setCell(sessionId, "a", 10);
+  const explanation = await table.explainCell(sessionId, "doubled");
+  assert.deepEqual(explanation.dependencies, [{ cell: "a", value: 10 }]);
+  assert.equal(explanation.value, 20);
+});
+
+test("explainCell: a cell referenced by a define but never itself set/defined throws the same 'no value' error explaining it directly as get_cell would (consistent with the rest of the API, not a special case)", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("generic");
+  await table.define(sessionId, { cell: "y", op: "math_eval", args: { expr: "ghost + 1", vars: { ghost: { $cell: "ghost" } } } });
+  await assert.rejects(table.getCell(sessionId, "ghost"), /session_list_cells/);
+  await assert.rejects(table.explainCell(sessionId, "ghost"), /session_list_cells/);
+});
+
+test("explainCell: a dependency that WAS explicitly set (even to null) reports its real value, not a throw -- only a truly never-set/defined cell throws", async () => {
+  const table = new SessionTable();
+  const { sessionId } = table.open("generic");
+  await table.setCell(sessionId, "a", null);
+  // "note" is a $cell ref extractCellRefs still finds (it walks the whole
+  // args object), but math_eval's own fn never reads it, so the compute
+  // doesn't validate "a" as a number -- isolates "does explainCell report
+  // a set-to-null dependency's value" from "does the op itself accept null".
+  await table.define(sessionId, { cell: "wraps", op: "math_eval", args: { expr: "1", note: { $cell: "a" } } });
+  const explanation = await table.explainCell(sessionId, "wraps");
+  assert.deepEqual(explanation.dependencies, [{ cell: "a", value: null }]);
 });
 
 test("set over a computed cell demotes it to a free cell (list_cells role flips)", async () => {

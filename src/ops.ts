@@ -23,6 +23,42 @@ export function isCellRef(value: unknown): value is CellRef {
   return typeof value === "object" && value !== null && "$cell" in value && typeof (value as CellRef).$cell === "string";
 }
 
+/**
+ * Every `$cell` reference found anywhere in a define-spec's `args`
+ * (recursively through nested objects/arrays) -- a cell's own immediate
+ * dependency set (issue #5's provenance/audit trail).
+ *
+ * Provably complete for this catalog, not just a best-effort scan:
+ * `resolveArg` (session.ts) is the ONLY place `$cell` references are ever
+ * consumed, and it walks `args` in exactly this same shape (literal JSON,
+ * no dynamic/conditional structure) before handing already-resolved plain
+ * values to `catalogEntry.fn` -- an op function never sees a `$cell`
+ * marker or calls back into the graph itself, so it can't introduce a
+ * dependency this walk would miss. That's what makes reading this
+ * statically off the stored `DefineSpec` (session.ts's own `defines` map)
+ * exactly equivalent to querying `CellGraph`'s own live dependency
+ * tracking, without needing to expose any new API on the vendored
+ * `cell-graph.ts`.
+ */
+export function extractCellRefs(args: Record<string, unknown>): string[] {
+  const refs = new Set<string>();
+  const walk = (value: unknown): void => {
+    if (isCellRef(value)) {
+      refs.add(value.$cell);
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item);
+      return;
+    }
+    if (typeof value === "object" && value !== null) {
+      for (const v of Object.values(value)) walk(v);
+    }
+  };
+  walk(args);
+  return [...refs];
+}
+
 /** The JSON shape `session_define` accepts (docs/design.md §5). */
 export interface DefineSpec {
   cell: string;
