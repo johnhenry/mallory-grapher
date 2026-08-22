@@ -21,7 +21,7 @@
     "test": "npm run typecheck && node --test test/*.test.ts"
   },
   "dependencies": {
-    "@johnhenry/math": "^0.15.0",
+    "@johnhenry/math": "^0.0.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "zod": "^3.25.0"
   },

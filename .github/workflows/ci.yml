@@ -2,8 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
+
+# Supersede an in-flight run when new commits land on the same ref -- the
+# whole family shares this block so a rapid push sequence never queues N
+# redundant runs.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
