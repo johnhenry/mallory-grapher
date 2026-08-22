@@ -8,7 +8,7 @@
  * are fully independent.
  */
 import { randomUUID } from "node:crypto";
-import { CellGraph } from "./cell-graph.ts";
+import { CellGraph } from "@johnhenry/math";
 import { DEFAULT_LIMITS, type SessionLimits } from "./limits.ts";
 import { extractCellRefs, isCellRef, OP_CATALOG, projectValue, type DefineSpec, type OpCatalog } from "./ops.ts";
 import { PRESETS, type SessionKind } from "./presets.ts";
@@ -112,7 +112,7 @@ export class SessionTable {
   /** `capabilities` (issue #7): granted for this session's whole lifetime, checked against any op's own `requiresCapability` in `applyDefine`. Defaults to none -- matching the existing default-off write posture, a session gets nothing beyond what pure/read-only ops need unless explicitly granted here. */
   open(kind: SessionKind, seed?: Record<string, unknown>, capabilities?: readonly string[]): { sessionId: string } {
     if (this.sessions.size >= this.limits.maxSessions) {
-      throw new SessionError(`session limit reached (${this.limits.maxSessions}) -- close one with session_close, or raise MALLORY_GRAPHER_MAX_SESSIONS`);
+      throw new SessionError(`session limit reached (${this.limits.maxSessions}) -- close one with session_close, or raise MATH_GRAPHER_MAX_SESSIONS`);
     }
     const preset = PRESETS[kind];
     if (!preset) throw new SessionError(`unknown session kind "${kind}" -- expected one of: ${Object.keys(PRESETS).join(", ")}`);
@@ -206,7 +206,7 @@ export class SessionTable {
   resume(snapshot: SessionSnapshot, capabilities?: readonly string[]): { sessionId: string } {
     if (snapshot.v !== 1) throw new SessionError(`unsupported snapshot version ${snapshot.v} -- this server understands v1`);
     if (this.sessions.size >= this.limits.maxSessions) {
-      throw new SessionError(`session limit reached (${this.limits.maxSessions}) -- close one with session_close, or raise MALLORY_GRAPHER_MAX_SESSIONS`);
+      throw new SessionError(`session limit reached (${this.limits.maxSessions}) -- close one with session_close, or raise MATH_GRAPHER_MAX_SESSIONS`);
     }
     if (!PRESETS[snapshot.kind]) throw new SessionError(`unknown session kind "${snapshot.kind}" -- expected one of: ${Object.keys(PRESETS).join(", ")}`);
     const session: Session = {
@@ -227,13 +227,13 @@ export class SessionTable {
   private assertCellBudget(session: Session, cell: string): void {
     const existing = session.graph.list();
     if (existing.length >= this.limits.maxCells && !existing.some((c) => c.id === cell)) {
-      throw new SessionError(`cell limit reached (${this.limits.maxCells}) -- raise MALLORY_GRAPHER_MAX_CELLS if this is intentional`);
+      throw new SessionError(`cell limit reached (${this.limits.maxCells}) -- raise MATH_GRAPHER_MAX_CELLS if this is intentional`);
     }
   }
 
   private applySet(session: Session, cell: string, value: unknown): void {
     if (payloadBytes(value) > this.limits.maxPayloadBytes) {
-      throw new SessionError(`value for "${cell}" exceeds the ${this.limits.maxPayloadBytes}-byte payload limit (MALLORY_GRAPHER_MAX_PAYLOAD_BYTES)`);
+      throw new SessionError(`value for "${cell}" exceeds the ${this.limits.maxPayloadBytes}-byte payload limit (MATH_GRAPHER_MAX_PAYLOAD_BYTES)`);
     }
     this.assertCellBudget(session, cell);
     session.defines.delete(cell); // a set over a computed cell demotes it to a free cell, matching CellGraph's own set-over-define semantics
@@ -259,7 +259,7 @@ export class SessionTable {
    */
   private applyDefine(session: Session, spec: DefineSpec): void {
     if (payloadBytes(spec) > this.limits.maxPayloadBytes) {
-      throw new SessionError(`define spec for "${spec.cell}" exceeds the ${this.limits.maxPayloadBytes}-byte payload limit (MALLORY_GRAPHER_MAX_PAYLOAD_BYTES)`);
+      throw new SessionError(`define spec for "${spec.cell}" exceeds the ${this.limits.maxPayloadBytes}-byte payload limit (MATH_GRAPHER_MAX_PAYLOAD_BYTES)`);
     }
     const catalogEntry = this.catalog[spec.op];
     if (!catalogEntry) throw new SessionError(`unknown op "${spec.op}" -- expected one of: ${Object.keys(this.catalog).join(", ")}`);
@@ -272,7 +272,7 @@ export class SessionTable {
     const table = this;
     graph.define(spec.cell, () => {
       if (table.deadline !== null && Date.now() > table.deadline) {
-        throw new SessionError(`recompute exceeded the ${table.limits.evalBudgetMs}ms eval budget (MALLORY_GRAPHER_EVAL_BUDGET_MS)`);
+        throw new SessionError(`recompute exceeded the ${table.limits.evalBudgetMs}ms eval budget (MATH_GRAPHER_EVAL_BUDGET_MS)`);
       }
       const resolved: Record<string, unknown> = {};
       for (const [name, arg] of Object.entries(spec.args)) {

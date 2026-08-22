@@ -311,7 +311,7 @@ test("set over a computed cell demotes it to a free cell (list_cells role flips)
 
 test("graph-theory preset: the headless spike's edge-list -> BFS pipeline works end-to-end with the same fixture and result", async () => {
   const table = new SessionTable();
-  // Same seed the preset defaults to == the spike's fixture (mallory-graph's
+  // Same seed the preset defaults to == the spike's fixture (mallory's
   // cell-graph-headless-spike.test.ts: "A B 4\nA C 2\nC B 1\nB D 5",
   // undirected, start A -> BFS order [A, B, C, D]).
   const { sessionId } = table.open("graph-theory");

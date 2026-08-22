@@ -5,14 +5,15 @@
  * self-evident, prefixed so the tools coexist unambiguously next to other
  * servers'.
  *
- * `buildServer()` is transport-agnostic (mallory-mcp's own pattern, §7):
- * the stdio CLI and the HTTP entry both call it against ONE shared
- * `SessionTable` -- sessions belong to the process, not to any single MCP
- * connection.
+ * `buildServer()` is transport-agnostic (math-plus's mcp package's own
+ * pattern, §7): the stdio CLI and the HTTP entry both call it against ONE
+ * shared `SessionTable` -- sessions belong to the process, not to any
+ * single MCP connection.
  *
  * A running server IS the write opt-in (§4): no per-tool env gates here.
- * If this ever gets mounted inside an always-on host (mallory-graph's
- * /api/mcp, grapher issue #4), the MOUNT must add its own gate.
+ * If this ever gets mounted inside an always-on host (mallory's (the app,
+ * formerly mallory-graph) /api/mcp, grapher issue #4), the MOUNT must add
+ * its own gate.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -43,7 +44,7 @@ const CATALOG_DOC = Object.entries(OP_CATALOG)
   .join("\n");
 
 export function buildServer(table: SessionTable = new SessionTable()): McpServer {
-  const server = new McpServer({ name: "mallory-grapher", version: "0.0.0" });
+  const server = new McpServer({ name: "math-grapher", version: "0.0.0" });
 
   server.registerTool(
     "session_open",
@@ -142,7 +143,7 @@ export function buildServer(table: SessionTable = new SessionTable()): McpServer
   server.registerTool(
     "session_snapshot",
     {
-      description: "Serialize a session's portable state (issue #6): current free-cell values plus define-specs. Does NOT include computed-cell cache -- those re-derive from define() on resume. Hand the returned document to session_resume, possibly on a different mallory-grapher process, to reconstruct an equivalent session.",
+      description: "Serialize a session's portable state (issue #6): current free-cell values plus define-specs. Does NOT include computed-cell cache -- those re-derive from define() on resume. Hand the returned document to session_resume, possibly on a different math-grapher process, to reconstruct an equivalent session.",
       inputSchema: { sessionId: z.string() },
     },
     async ({ sessionId }) => {

@@ -1,15 +1,16 @@
-# mallory-grapher
+# math-grapher
 
 A headless, DOM-less session runtime for the `mallory` family's reactive
 compute graph (`CellGraph`), agent-drivable over MCP.
 
 ## Why this exists
 
-`mallory-graph`'s in-page WebMCP tools (`useCellGraphTools`:
+`mallory`'s (the graphing-calculator app, formerly `mallory-graph`)
+in-page WebMCP tools (`useCellGraphTools`:
 `${prefix}_list_cells`/`get_cell`/`set_cell`) already let an agent drive a
 *live, reactive* `CellGraph` — but only from inside a rendered browser tab.
-The server-side MCP endpoint mallory-graph ships today (`mallory-mcp`,
-`packages/mcp` in `mallory-plus`) only covers **stateless** math tools
+The server-side MCP endpoint mallory ships today (`mallory-mcp`,
+math-plus's `packages/mcp`) only covers **stateless** math tools
 (Symbolic eval, guarded tensor/linalg) plus **read-only, serialized**
 gallery access (`gallery_list`/`gallery_get` read `NotebookState.blocks[]`
 JSON — no computed/derived-cell evaluation, no reactivity).
@@ -18,21 +19,21 @@ Real session parity — "an agent could run an entire modeling session
 headlessly" — means running the reactive compute graph itself server-side,
 with no DOM/React tree at all. That's a materially different, bigger
 project than either of the above, so it lives here instead of inside
-mallory-graph.
+mallory.
 
-Split out of [mallory-graph#163](https://github.com/johnhenry/mallory-graph/issues/163)
+Split out of [mallory#163](https://github.com/johnhenry/mallory/issues/163)
 after that issue's own audit trail: a feasibility spike
 (`cell-graph-headless-spike.test.ts`) already confirmed `CellGraph` itself
 has zero `window`/`document` references — `set`/`define`/`get`/
 `subscribe`/`subscribeAll` are plain data-structure + closure code. What
 doesn't exist yet is the actual session API around it.
 
-## Relationship to mallory-graph
+## Relationship to mallory
 
-**Optional, not coupled.** mallory-grapher does not depend on
-mallory-graph, and mallory-graph does not need to depend on
-mallory-grapher to function. mallory-graph *may* choose to mount a
-mallory-grapher-backed MCP route the same way it mounts `mallory-mcp`
+**Optional, not coupled.** math-grapher does not depend on
+mallory (the app), and mallory does not need to depend on
+math-grapher to function. mallory *may* choose to mount a
+math-grapher-backed MCP route the same way it mounts `mallory-mcp`
 today (`src/routes/api.mcp.ts`) — a separate integration issue, not a
 prerequisite for this repo to exist or ship v1.
 
@@ -44,11 +45,11 @@ Concretely, this repo owns:
 It deliberately does NOT own:
 - Canvas/WebGL rendering — session parity is about the same get/set/list
   *contract* WebMCP already gives an in-page agent, not pixels.
-- mallory-graph's specific panel components, gallery storage, or UI.
+- mallory's specific panel components, gallery storage, or UI.
 
 ## What's known so far (carried over from #163's audit)
 
-- `CellGraph`'s core (`cell-graph.ts` in mallory-graph, ~500 lines) has no
+- `CellGraph`'s core (`cell-graph.ts` in mallory, ~500 lines) has no
   structural blocker to running headless — proven empirically, not just
   asserted.
 - Most panels' `useXGraph()` seed step reads `window.location.hash` /
@@ -57,7 +58,7 @@ It deliberately does NOT own:
   SSR-safety code), so they degrade gracefully rather than crash — but a
   real agent-drivable session needs a way to seed state from something
   other than a browser's URL bar (an MCP tool argument, presumably).
-- Write-path auth precedent: mallory-graph's `gallery_save` tool
+- Write-path auth precedent: mallory's `gallery_save` tool
   (#163 item 1, shipped) is gated OFF by default behind an explicit
   env var (`MALLORY_GRAPH_ENABLE_MCP_WRITE=1`), mirroring `llmtm`'s
   `LLMTM_HUB_ENABLE_*` convention. A session-runtime write surface should
@@ -73,11 +74,11 @@ transports are built and tested.
 
 ```bash
 # stdio (the transport MCP hosts speak natively -- e.g. `claude mcp add`)
-npx mallory-grapher
+npx math-grapher
 
 # Streamable HTTP on http://localhost:3920/mcp (or a custom port)
-npx mallory-grapher --http
-npx mallory-grapher --http 8123
+npx math-grapher --http
+npx math-grapher --http 8123
 ```
 
 Tools: `session_open` (kind `generic` or `graph-theory`), `session_close`,
@@ -99,6 +100,6 @@ gating precedent below, just per-op instead of one global switch). No op
 in the catalog above declares one yet.
 
 Resource guards default modest and are overridable:
-`MALLORY_GRAPHER_MAX_SESSIONS` (16), `MALLORY_GRAPHER_MAX_CELLS` (512),
-`MALLORY_GRAPHER_EVAL_BUDGET_MS` (250), `MALLORY_GRAPHER_MAX_PAYLOAD_BYTES`
+`MATH_GRAPHER_MAX_SESSIONS` (16), `MATH_GRAPHER_MAX_CELLS` (512),
+`MATH_GRAPHER_EVAL_BUDGET_MS` (250), `MATH_GRAPHER_MAX_PAYLOAD_BYTES`
 (262144).

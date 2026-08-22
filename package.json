@@ -1,5 +1,5 @@
 {
-  "name": "mallory-grapher",
+  "name": "@johnhenry/math-grapher",
   "version": "0.0.0",
   "description": "Headless, DOM-less CellGraph session runtime — agent-drivable via MCP; sessions of reactive cells computed through a server-side op catalog, no arbitrary code execution",
   "type": "module",
@@ -10,7 +10,7 @@
     }
   },
   "bin": {
-    "mallory-grapher": "./dist/cli.js"
+    "math-grapher": "./dist/cli.js"
   },
   "files": [
     "dist"
@@ -21,8 +21,8 @@
     "test": "npm run typecheck && node --test test/*.test.ts"
   },
   "dependencies": {
+    "@johnhenry/math": "^0.15.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "mallory-math": "^0.11.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {
@@ -31,7 +31,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/johnhenry/mallory-grapher.git"
+    "url": "git+https://github.com/johnhenry/math-grapher.git"
+  },
+  "homepage": "https://github.com/johnhenry/math-grapher#readme",
+  "bugs": {
+    "url": "https://github.com/johnhenry/math-grapher/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "license": "MIT",
   "sideEffects": false,
