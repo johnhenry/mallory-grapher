@@ -1,0 +1,68 @@
+name: Publish to npm
+
+# Release-gated, mirroring johnhenry/math's publish.yml but for a
+# single-package repo: no workspace loop, no JSR job (this package is
+# npm-only for now).
+#
+# Bump `version` in package.json, merge, then cut a GitHub Release — or
+# dispatch manually. Publishing is skipped when the version is already on
+# npm, so re-running a release or dispatching twice is safe.
+#
+# Requires the NPM_TOKEN repository secret.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write # npm provenance attestation
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+
+      - run: npm ci
+
+      # `npm test` already chains typecheck (see package.json), so this is
+      # the full verification surface this repo has.
+      - run: npm test
+
+      - run: npm run build
+
+      - name: No NPM_TOKEN — skipping publish
+        if: env.NPM_TOKEN == ''
+        run: |
+          echo "::notice title=Publish skipped::NPM_TOKEN is not configured; nothing was published."
+
+      # Idempotent: `npm view` returns non-zero for a version that does not
+      # exist yet, which is the signal to publish. Any other failure still
+      # fails the job.
+      - name: Publish if this version is new
+        if: env.NPM_TOKEN != ''
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "::notice title=Already published::$NAME@$VERSION is already on npm; nothing to do."
+          else
+            echo "Publishing $NAME@$VERSION ..."
+            npm publish --provenance --access public
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -74,11 +74,11 @@ transports are built and tested.
 
 ```bash
 # stdio (the transport MCP hosts speak natively -- e.g. `claude mcp add`)
-npx math-grapher
+npx @johnhenry/math-grapher
 
 # Streamable HTTP on http://localhost:3920/mcp (or a custom port)
-npx math-grapher --http
-npx math-grapher --http 8123
+npx @johnhenry/math-grapher --http
+npx @johnhenry/math-grapher --http 8123
 ```
 
 Tools: `session_open` (kind `generic` or `graph-theory`), `session_close`,
