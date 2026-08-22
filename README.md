@@ -1,6 +1,6 @@
 # math-grapher
 
-A headless, DOM-less session runtime for the `mallory` family's reactive
+A headless, DOM-less session runtime for the `@johnhenry/math` family's reactive
 compute graph (`CellGraph`), agent-drivable over MCP.
 
 ## Why this exists
