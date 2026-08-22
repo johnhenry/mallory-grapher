@@ -1,6 +1,6 @@
 /**
  * Resource guards (docs/design.md §9): modest fixed defaults, each
- * overridable via a `MALLORY_GRAPHER_*` env var so a heavy user can raise
+ * overridable via a `MATH_GRAPHER_*` env var so a heavy user can raise
  * them without a release. Exceeding a limit is a structured error thrown
  * from the session layer (and surfaced as a tool error by the MCP
  * surface), never a crash.
@@ -34,9 +34,9 @@ function intFromEnv(env: Record<string, string | undefined>, name: string, fallb
 
 export function limitsFromEnv(env: Record<string, string | undefined> = process.env): SessionLimits {
   return {
-    maxSessions: intFromEnv(env, "MALLORY_GRAPHER_MAX_SESSIONS", DEFAULT_LIMITS.maxSessions),
-    maxCells: intFromEnv(env, "MALLORY_GRAPHER_MAX_CELLS", DEFAULT_LIMITS.maxCells),
-    evalBudgetMs: intFromEnv(env, "MALLORY_GRAPHER_EVAL_BUDGET_MS", DEFAULT_LIMITS.evalBudgetMs),
-    maxPayloadBytes: intFromEnv(env, "MALLORY_GRAPHER_MAX_PAYLOAD_BYTES", DEFAULT_LIMITS.maxPayloadBytes),
+    maxSessions: intFromEnv(env, "MATH_GRAPHER_MAX_SESSIONS", DEFAULT_LIMITS.maxSessions),
+    maxCells: intFromEnv(env, "MATH_GRAPHER_MAX_CELLS", DEFAULT_LIMITS.maxCells),
+    evalBudgetMs: intFromEnv(env, "MATH_GRAPHER_EVAL_BUDGET_MS", DEFAULT_LIMITS.evalBudgetMs),
+    maxPayloadBytes: intFromEnv(env, "MATH_GRAPHER_MAX_PAYLOAD_BYTES", DEFAULT_LIMITS.maxPayloadBytes),
   };
 }

@@ -8,11 +8,11 @@
  *
  * No expression eval, no code injection surface: the entire compute
  * surface is this catalog -- each op a named, typed, tested function.
- * (`math_eval` accepts a mallory-math Symbolic expression string, but
+ * (`math_eval` accepts an @johnhenry/math Symbolic expression string, but
  * that's `Symbolic.parse` over a closed math grammar with an explicit
  * variable env -- structured input, not code.)
  */
-import { Graph, Symbolic } from "mallory-math";
+import { Graph, Symbolic } from "@johnhenry/math";
 
 /** A live reference to another cell inside a define-spec's args. */
 export interface CellRef {
@@ -114,11 +114,11 @@ function asGraph(args: ResolvedArgs, name: string): Graph<string> {
 
 /**
  * Grapher's own small edge-list parser -- the same line format
- * mallory-graph's GraphTheoryPanel uses (`from to [weight]`, one edge per
+ * mallory's GraphTheoryPanel uses (`from to [weight]`, one edge per
  * line; a single token declares an isolated vertex; weight defaults to
- * 1), reimplemented against mallory-math's `Graph` directly per
+ * 1), reimplemented against @johnhenry/math's `Graph` directly per
  * docs/design.md §10 (contract parity with the panel, not byte parity --
- * no mallory-graph dependency).
+ * no mallory dependency).
  */
 export function parseEdgeListText(text: string, directed: boolean): Graph<string> {
   const graph = new Graph<string>(directed);
@@ -149,7 +149,7 @@ export function parseEdgeListText(text: string, directed: boolean): Graph<string
 export const OP_CATALOG: OpCatalog = {
   math_eval: {
     description:
-      'Evaluate a mallory-math Symbolic expression string over named numeric variables. args: { expr: string, vars?: { name: number | {"$cell": ...} } }. value: number.',
+      'Evaluate an @johnhenry/math Symbolic expression string over named numeric variables. args: { expr: string, vars?: { name: number | {"$cell": ...} } }. value: number.',
     fn: (args) => {
       const expr = asString(args, "expr");
       const varsRaw = args.vars ?? {};

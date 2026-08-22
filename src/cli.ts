@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `mallory-grapher` -- run the session server (docs/design.md §7).
+ * `math-grapher` -- run the session server (docs/design.md §7).
  *
  * - Default: stdio, the transport every MCP host speaks natively. The
  *   primary entry: sessions live exactly as long as this process (§1's
@@ -59,6 +59,6 @@ if (httpFlagIndex === -1) {
     }
   });
   httpServer.listen(port, () => {
-    console.error(`mallory-grapher: Streamable HTTP on http://localhost:${port}/mcp (sessions are in-memory, per-process)`);
+    console.error(`math-grapher: Streamable HTTP on http://localhost:${port}/mcp (sessions are in-memory, per-process)`);
   });
 }
