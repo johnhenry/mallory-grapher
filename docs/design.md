@@ -1,6 +1,6 @@
 # math-grapher v1 design
 
-Settles the open questions in [#1](https://github.com/johnhenry/mallory-grapher/issues/1).
+Settles the open questions in [#1](https://github.com/johnhenry/math-grapher/issues/1).
 Decided collaboratively 2026-08-19; each section notes the decision, the
 alternatives considered, and why.
 
@@ -53,7 +53,7 @@ which gates one write tool inside an otherwise-read-only server that's
 always mounted; here the whole server is write-capable by nature, so the
 gate at tool granularity would be theater. **If** mallory later
 mounts grapher inside its own always-on `/api/mcp`
-([#4](https://github.com/johnhenry/mallory-grapher/issues/4)), THAT
+([#4](https://github.com/johnhenry/math-grapher/issues/4)), THAT
 integration must add an env gate at the mount point — recorded there,
 not here.
 
@@ -80,13 +80,13 @@ op from a server-side catalog plus cell references for its inputs:
 - No expression strings, no parsing, no eval — the entire compute surface
   is the catalog, each op a named, typed, tested function. Same
   "structured inputs only, no arbitrary code execution" stance
-  mallory-mcp already advertises.
+  @johnhenry/math-plus-mcp already advertises.
 
 **v1 op catalog** (small, honest, growable):
 
 | op | args | value |
 |---|---|---|
-| `math_eval` | `expr` (Symbolic string), `vars` (map of cell refs/numbers) | number — mallory-mcp's `symbolic_evaluate` precedent, scoped to named vars |
+| `math_eval` | `expr` (Symbolic string), `vars` (map of cell refs/numbers) | number — @johnhenry/math-plus-mcp's `symbolic_evaluate` precedent, scoped to named vars |
 | `graph_parse_edge_list` | `text`, `directed` | Graph |
 | `graph_analyze` | `graph` | `{ hasCycle, components, sccs, topologicalOrder, adjacencyMatrix }` |
 | `graph_bfs` / `graph_dfs` | `graph`, `start` | traversal order |
@@ -123,7 +123,7 @@ the coupling this repo exists to avoid).
 
 ## 7. Transport: both from day one
 
-`buildServer()` is transport-agnostic (mallory-mcp's own pattern). Two
+`buildServer()` is transport-agnostic (@johnhenry/math-plus-mcp's own pattern). Two
 entries ship in v1:
 
 - **stdio CLI** (`math-grapher` bin) — the primary path; an agent host
@@ -132,7 +132,7 @@ entries ship in v1:
   in-memory session table; the transport carries the MCP session, and our
   `sessionId`s ride inside tool args (§8), so no extra session-affinity
   plumbing is needed. This is also the path
-  [#4](https://github.com/johnhenry/mallory-grapher/issues/4)'s optional
+  [#4](https://github.com/johnhenry/math-grapher/issues/4)'s optional
   mallory mount would reuse.
 
 ## 8. Tool surface
@@ -184,14 +184,14 @@ dependency on mallory — byte-for-byte parity with
 3. Op catalog + define-spec interpreter (§5) — the core novel piece,
    tested op-by-op and against the spike's edge-list → BFS fixture.
 4. MCP tool surface over it (§8) + `graph-theory` preset (§2, §10) —
-   [#3](https://github.com/johnhenry/mallory-grapher/issues/3).
+   [#3](https://github.com/johnhenry/math-grapher/issues/3).
 5. stdio CLI + HTTP entries (§7).
 6. Separately: @johnhenry/math `CellGraph` upstreaming PR; swap on
    publish (§6, done).
 
-Steps 2–3 are [#2](https://github.com/johnhenry/mallory-grapher/issues/2)'s
-scope; step 4 is [#3](https://github.com/johnhenry/mallory-grapher/issues/3);
-[#4](https://github.com/johnhenry/mallory-grapher/issues/4) stays parked
+Steps 2–3 are [#2](https://github.com/johnhenry/math-grapher/issues/2)'s
+scope; step 4 is [#3](https://github.com/johnhenry/math-grapher/issues/3);
+[#4](https://github.com/johnhenry/math-grapher/issues/4) stays parked
 until all of this is real.
 
 > **Post-v1 amendment (2026-08-20):** #4 (mounting grapher inside
@@ -200,7 +200,7 @@ until all of this is real.
 > maybe-scaled container lifecycle, invert §4's opt-in security posture on
 > a publicly-reachable endpoint, and put the session server's memory blast
 > radius inside the live SSR site. Full reasoning in
-> [#4's closing comment](https://github.com/johnhenry/mallory-grapher/issues/4#issuecomment-5345150726).
+> [#4's closing comment](https://github.com/johnhenry/math-grapher/issues/4#issuecomment-5345150726).
 > Local stdio is the supported path; if remote agents ever need grapher,
 > the right shape is a separate gated Dokku app (bearer-token auth,
 > tightened limits, memory cap), filed as its own issue when a concrete

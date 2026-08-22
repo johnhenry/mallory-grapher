@@ -9,7 +9,7 @@ compute graph (`CellGraph`), agent-drivable over MCP.
 in-page WebMCP tools (`useCellGraphTools`:
 `${prefix}_list_cells`/`get_cell`/`set_cell`) already let an agent drive a
 *live, reactive* `CellGraph` — but only from inside a rendered browser tab.
-The server-side MCP endpoint mallory ships today (`mallory-mcp`,
+The server-side MCP endpoint mallory ships today (`@johnhenry/math-plus-mcp`,
 math-plus's `packages/mcp`) only covers **stateless** math tools
 (Symbolic eval, guarded tensor/linalg) plus **read-only, serialized**
 gallery access (`gallery_list`/`gallery_get` read `NotebookState.blocks[]`
@@ -33,7 +33,7 @@ doesn't exist yet is the actual session API around it.
 **Optional, not coupled.** math-grapher does not depend on
 mallory (the app), and mallory does not need to depend on
 math-grapher to function. mallory *may* choose to mount a
-math-grapher-backed MCP route the same way it mounts `mallory-mcp`
+math-grapher-backed MCP route the same way it mounts `@johnhenry/math-plus-mcp`
 today (`src/routes/api.mcp.ts`) — a separate integration issue, not a
 prerequisite for this repo to exist or ship v1.
 
